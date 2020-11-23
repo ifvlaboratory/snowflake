@@ -33,7 +33,7 @@ func newSession(snowflakes SnowflakeCollector) (net.PacketConn, *smux.Session, e
 	clientID := turbotunnel.NewClientID()
 
 	// We build a persistent KCP session on a sequence of ephemeral WebRTC
-	// connections. This dialContext tells RedialPacketConn how to get a new
+	// connections. This dialContext tells MultiplexingPacketConn how to get a new
 	// WebRTC connection when the previous one dies. Inside each WebRTC
 	// connection, we use EncapsulationPacketConn to encode packets into a
 	// stream.
@@ -57,9 +57,9 @@ func newSession(snowflakes SnowflakeCollector) (net.PacketConn, *smux.Session, e
 		}
 		return NewEncapsulationPacketConn(dummyAddr{}, dummyAddr{}, conn), nil
 	}
-	pconn := turbotunnel.NewRedialPacketConn(dummyAddr{}, dummyAddr{}, dialContext)
+	pconn := turbotunnel.NewMultiplexingPacketConn(dummyAddr{}, dummyAddr{}, 3, dialContext)
 
-	// conn is built on the underlying RedialPacketConn—when one WebRTC
+	// conn is built on the underlying MultiplexingPacketConn—when one WebRTC
 	// connection dies, another one will be found to take its place. The
 	// sequence of packets across multiple WebRTC connections drives the KCP
 	// engine.
