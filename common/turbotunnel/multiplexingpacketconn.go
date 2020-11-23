@@ -1,7 +1,6 @@
 package turbotunnel
 
 import (
-	"container/list"
 	"context"
 	"errors"
 	"net"
@@ -28,18 +27,11 @@ type MultiplexingPacketConn struct {
 	sendQueue   chan []byte
 	closed      chan struct{}
 	closeOnce   sync.Once
+	count       uint
 	// The first dial error, which causes the clientPacketConn to be
 	// closed and is returned from future read/write operations. Compare to
 	// the rerr and werr in io.Pipe.
 	err atomic.Value
-	// The number of snowflakes we multiplex across
-	count  uint
-	queues *list.List
-}
-
-type Peer struct {
-	net.PacketConn
-	sendQueue chan []byte
 }
 
 // NewQueuePacketConn makes a new MultiplexingPacketConn, with the given static local
@@ -55,9 +47,8 @@ func NewMultiplexingPacketConn(
 		recvQueue:   make(chan []byte, queueSize),
 		sendQueue:   make(chan []byte, queueSize),
 		closed:      make(chan struct{}),
-		err:         atomic.Value{},
 		count:       count,
-		queues:      list.New(),
+		err:         atomic.Value{},
 	}
 	go c.dialLoop()
 	return c
@@ -69,18 +60,10 @@ func NewMultiplexingPacketConn(
 func (c *MultiplexingPacketConn) dialLoop() {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	// Create a sendQueue for each potential peer
-	tokens := make(chan chan []byte, c.count)
+	tokens := make(chan bool, c.count)
 	for i := uint(0); i < c.count; i++ {
-		queue := make(chan []byte, queueSize)
-		c.queues.PushBack(queue)
-		tokens <- queue
+		tokens <- true
 	}
-
-	errChan := make(chan struct{})
-	defer close(errChan)
-
-	go c.multiplex(errChan)
 	for {
 		select {
 		case <-c.closed:
@@ -88,7 +71,7 @@ func (c *MultiplexingPacketConn) dialLoop() {
 			return
 		default:
 		}
-		queue := <-tokens
+		<-tokens
 		go func() {
 			conn, err := c.dialContext(ctx)
 			if err != nil {
@@ -96,35 +79,17 @@ func (c *MultiplexingPacketConn) dialLoop() {
 				cancel()
 				return
 			}
-			p := &Peer{PacketConn: conn, sendQueue: queue}
-			c.exchange(p)
+			c.exchange(conn)
 			conn.Close()
-			tokens <- queue
+			tokens <- true
 		}()
-	}
-}
-
-// multiplex packets received from c.sendQueue to WebRTC connections
-// in the list of Peers
-// currently uses a round-robin method of splitting traffic
-func (c *MultiplexingPacketConn) multiplex(ch chan struct{}) {
-	for {
-		select {
-		case <-ch:
-			return
-		case p := <-c.sendQueue:
-			e := c.queues.Front()
-			queue := e.Value.(chan []byte)
-			queue <- p
-			c.queues.MoveToBack(e)
-		}
 	}
 }
 
 // exchange calls ReadFrom on the given net.PacketConn and places the resulting
 // packets in the receive queue, and takes packets from the send queue and calls
 // WriteTo on them, making the current net.PacketConn active.
-func (c *MultiplexingPacketConn) exchange(conn *Peer) {
+func (c *MultiplexingPacketConn) exchange(conn net.PacketConn) {
 	readErrCh := make(chan error)
 	writeErrCh := make(chan error)
 
@@ -162,7 +127,7 @@ func (c *MultiplexingPacketConn) exchange(conn *Peer) {
 				return
 			case <-readErrCh:
 				return
-			case p := <-conn.sendQueue:
+			case p := <-c.sendQueue:
 				_, err := conn.WriteTo(p, c.remoteAddr)
 				if err != nil {
 					writeErrCh <- err
