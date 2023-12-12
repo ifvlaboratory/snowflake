@@ -270,7 +270,11 @@ func main() {
 		switch methodName {
 		case "snowflake":
 			// TODO: Be able to recover when SOCKS dies.
-			ln, err := pt.ListenSocks("tcp", "127.0.0.1:0")
+			listenAddr := "127.0.0.1:0"
+			if forcedListenAddr := os.Getenv("SNOWFLAKE_TEST_FORCELISTENADDR"); forcedListenAddr != "" {
+				listenAddr = forcedListenAddr
+			}
+			ln, err := pt.ListenSocks("tcp", listenAddr)
 			if err != nil {
 				pt.CmethodError(methodName, err.Error())
 				break
