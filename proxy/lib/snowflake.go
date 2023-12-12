@@ -349,6 +349,12 @@ func (sf *SnowflakeProxy) datachannelHandler(conn *webRTCConn, remoteAddr net.Ad
 		log.Printf("no remote address given in websocket")
 	}
 
+	if protocol := conn.GetConnectionProtocol(); protocol != "" {
+		q := u.Query()
+		q.Set("protocol", protocol)
+		u.RawQuery = q.Encode()
+	}
+
 	ws, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
 	if err != nil {
 		log.Printf("error dialing relay: %s = %s", u.String(), err)
@@ -422,6 +428,7 @@ func (sf *SnowflakeProxy) makePeerConnectionFromOffer(
 
 		pr, pw := io.Pipe()
 		conn := newWebRTCConn(pc, dc, pr, sf.bytesLogger)
+		conn.SetConnectionProtocol(dc.Protocol())
 
 		dc.SetBufferedAmountLowThreshold(bufferedAmountLowThreshold)
 

@@ -43,6 +43,8 @@ type WebRTCPeer struct {
 	bytesLogger  bytesLogger
 	eventsLogger event.SnowflakeEventReceiver
 	proxy        *url.URL
+
+	activeTransportMode byte
 }
 
 // Deprecated: Use NewWebRTCPeerWithEventsAndProxy Instead.
@@ -168,6 +170,7 @@ func (c *WebRTCPeer) checkForStaleness(timeout time.Duration) {
 // receive an answer from broker, and wait for data channel to open
 func (c *WebRTCPeer) connect(config *webrtc.Configuration, broker *BrokerChannel) error {
 	log.Println(c.id, " connecting...")
+	c.activeTransportMode = 'u'
 	err := c.preparePeerConnection(config)
 	localDescription := c.pc.LocalDescription()
 	c.eventsLogger.OnNewSnowflakeEvent(event.EventOnOfferCreated{
@@ -236,8 +239,17 @@ func (c *WebRTCPeer) preparePeerConnection(config *webrtc.Configuration) error {
 		return err
 	}
 	ordered := true
+	var maxRetransmission *uint16
+	if c.activeTransportMode == 'u' {
+		ordered = false
+		maxRetransmissionVal := uint16(0)
+		maxRetransmission = &maxRetransmissionVal
+	}
+	protocol := fmt.Sprintf("%c", c.activeTransportMode)
 	dataChannelOptions := &webrtc.DataChannelInit{
-		Ordered: &ordered,
+		Ordered:        &ordered,
+		Protocol:       &protocol,
+		MaxRetransmits: maxRetransmission,
 	}
 	// We must create the data channel before creating an offer
 	// https://github.com/pion/webrtc/wiki/Release-WebRTC@v3.0.0#a-data-channel-is-no-longer-implicitly-created-with-a-peerconnection

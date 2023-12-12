@@ -332,6 +332,16 @@ func newSession(snowflakes SnowflakeCollector) (net.PacketConn, *smux.Session, e
 			return nil, errors.New("handler: Received invalid Snowflake")
 		}
 		log.Println("---- Handler: snowflake assigned ----")
+		log.Printf("activeTransportMode = %c \n", conn.activeTransportMode)
+		if conn.activeTransportMode == 'u' {
+			packetIDConn := newPacketClientIDConn(clientID, conn)
+			packetConnWrapper := &packetConnWrapper{
+				ReadWriter: packetIDConn,
+				remoteAddr: dummyAddr{},
+				localAddr:  dummyAddr{},
+			}
+			return packetConnWrapper, nil
+		}
 		// Send the magic Turbo Tunnel token.
 		_, err := conn.Write(turbotunnel.Token[:])
 		if err != nil {
@@ -356,7 +366,7 @@ func newSession(snowflakes SnowflakeCollector) (net.PacketConn, *smux.Session, e
 		return nil, nil, err
 	}
 	// Permit coalescing the payloads of consecutive sends.
-	conn.SetStreamMode(true)
+	conn.SetStreamMode(false)
 	// Set the maximum send and receive window sizes to a high number
 	// Removes KCP bottlenecks: https://gitlab.torproject.org/tpo/anti-censorship/pluggable-transports/snowflake/-/issues/40026
 	conn.SetWindowSize(WindowSize, WindowSize)

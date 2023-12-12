@@ -108,6 +108,16 @@ func (handler *httpHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Pass the address of client as the remote address of incoming connection
 	clientIPParam := r.URL.Query().Get("client_ip")
 	addr := clientAddr(clientIPParam)
+	clientTransport := r.URL.Query().Get("protocol")
+
+	if clientTransport == "u" {
+		err = handler.turboTunnelUDPLikeMode(conn, addr)
+		if err != nil && err != io.EOF {
+			log.Println(err)
+			return
+		}
+		return
+	}
 
 	var token [len(turbotunnel.Token)]byte
 	_, err = io.ReadFull(conn, token[:])
@@ -218,6 +228,61 @@ func (handler *httpHandler) turbotunnelMode(conn net.Conn, addr net.Addr) error 
 
 	wg.Wait()
 
+	return nil
+}
+
+func (handler *httpHandler) turboTunnelUDPLikeMode(conn net.Conn, addr net.Addr) error {
+	packetConnIDCon := packetConnIDConnServer{Conn: conn}
+	var packet [1600]byte
+	n, err := packetConnIDCon.Read(packet[:])
+	if err != nil {
+		return fmt.Errorf("reading ClientID: %v", err)
+	}
+	clientID, err := packetConnIDCon.GetClientID()
+	if err != nil {
+		return fmt.Errorf("reading ClientID: %v", err)
+	}
+	clientIDAddrMap.Set(clientID, addr)
+
+	pconn := handler.lookupPacketConn(clientID)
+	pconn.QueueIncoming(packet[:n], clientID)
+	var wg sync.WaitGroup
+	wg.Add(2)
+	done := make(chan struct{})
+	go func() {
+		defer wg.Done()
+		defer close(done) // Signal the write loop to finish
+		for {
+			n, err := packetConnIDCon.Read(packet[:])
+			if err != nil {
+				log.Println(err)
+				return
+			}
+			pconn.QueueIncoming(packet[:n], clientID)
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		defer conn.Close() // Signal the read loop to finish
+		for {
+			select {
+			case <-done:
+				return
+			case p, ok := <-pconn.OutgoingQueue(clientID):
+				if !ok {
+					return
+				}
+				_, err := packetConnIDCon.Write(p)
+				pconn.Restore(p)
+				if err != nil {
+					log.Println(err)
+					return
+				}
+			}
+		}
+	}()
+
+	wg.Wait()
 	return nil
 }
 

@@ -255,7 +255,7 @@ func (l *SnowflakeListener) acceptSessions(ln *kcp.Listener) error {
 			return err
 		}
 		// Permit coalescing the payloads of consecutive sends.
-		conn.SetStreamMode(true)
+		conn.SetStreamMode(false)
 		// Set the maximum send and receive window sizes to a high number
 		// Removes KCP bottlenecks: https://gitlab.torproject.org/tpo/anti-censorship/pluggable-transports/snowflake/-/issues/40026
 		conn.SetWindowSize(WindowSize, WindowSize)
