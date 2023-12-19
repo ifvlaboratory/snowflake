@@ -32,6 +32,7 @@ import (
 	"math/rand"
 	"net"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -378,6 +379,14 @@ func newSession(snowflakes SnowflakeCollector) (net.PacketConn, *smux.Session, e
 		0, // default resend
 		1, // nc=1 => congestion window off
 	)
+	if os.Getenv("SNOWFLAKE_TEST_KCP_FAST3MODE") == "1" {
+		conn.SetNoDelay(
+			1,
+			10,
+			2,
+			1,
+		)
+	}
 	// On the KCP connection we overlay an smux session and stream.
 	smuxConfig := smux.DefaultConfig()
 	smuxConfig.Version = 2
