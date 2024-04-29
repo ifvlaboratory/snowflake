@@ -19,6 +19,7 @@ import (
 
 	"gitlab.torproject.org/tpo/anti-censorship/pluggable-transports/snowflake/v2/common/event"
 	"gitlab.torproject.org/tpo/anti-censorship/pluggable-transports/snowflake/v2/common/proxy"
+	"gitlab.torproject.org/tpo/anti-censorship/pluggable-transports/snowflake/v2/common/turbotunnel"
 )
 
 // WebRTCPeer represents a WebRTC connection to a remote snowflake proxy.
@@ -45,6 +46,7 @@ type WebRTCPeer struct {
 	proxy        *url.URL
 
 	activeTransportMode byte
+	connectionID        turbotunnel.ClientID
 }
 
 // Deprecated: Use NewWebRTCPeerWithEventsAndProxy Instead.
@@ -62,14 +64,21 @@ func NewWebRTCPeerWithEvents(
 	return NewWebRTCPeerWithEventsAndProxy(config, broker, eventsLogger, nil)
 }
 
-// NewWebRTCPeerWithEventsAndProxy constructs a WebRTC PeerConnection to a snowflake proxy.
+func NewWebRTCPeerWithEventsAndProxy(config *webrtc.Configuration,
+	broker *BrokerChannel, eventsLogger event.SnowflakeEventReceiver, proxy *url.URL,
+) (*WebRTCPeer, error) {
+	return NewWebRTCPeerWithEventsProxyAndClientID(config, broker, eventsLogger, proxy, turbotunnel.ClientID{})
+}
+
+// NewWebRTCPeerWithEventsProxyAndClientID constructs a WebRTC PeerConnection to a snowflake proxy.
 //
 // The creation of the peer handles the signaling to the Snowflake broker, including
 // the exchange of SDP information, the creation of a PeerConnection, and the establishment
 // of a DataChannel to the Snowflake proxy.
-func NewWebRTCPeerWithEventsAndProxy(
-	config *webrtc.Configuration, broker *BrokerChannel,
-	eventsLogger event.SnowflakeEventReceiver, proxy *url.URL,
+// connectionID is the hinted ID for the connection.
+func NewWebRTCPeerWithEventsProxyAndClientID(config *webrtc.Configuration,
+	broker *BrokerChannel, eventsLogger event.SnowflakeEventReceiver, proxy *url.URL,
+	clientID turbotunnel.ClientID,
 ) (*WebRTCPeer, error) {
 	if eventsLogger == nil {
 		eventsLogger = event.NewSnowflakeEventDispatcher()
@@ -93,6 +102,7 @@ func NewWebRTCPeerWithEventsAndProxy(
 
 	connection.eventsLogger = eventsLogger
 	connection.proxy = proxy
+	connection.connectionID = clientID
 
 	err := connection.connect(config, broker)
 	if err != nil {
@@ -245,7 +255,7 @@ func (c *WebRTCPeer) preparePeerConnection(config *webrtc.Configuration) error {
 		maxRetransmissionVal := uint16(0)
 		maxRetransmission = &maxRetransmissionVal
 	}
-	protocol := fmt.Sprintf("%c", c.activeTransportMode)
+	protocol := fmt.Sprintf("%c %s", c.activeTransportMode, c.connectionID.String())
 	dataChannelOptions := &webrtc.DataChannelInit{
 		Ordered:        &ordered,
 		Protocol:       &protocol,
