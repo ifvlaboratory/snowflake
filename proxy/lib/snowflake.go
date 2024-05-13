@@ -44,6 +44,7 @@ import (
 	"github.com/pion/ice/v2"
 	"github.com/pion/transport/v2/stdnet"
 	"github.com/pion/webrtc/v3"
+
 	"gitlab.torproject.org/tpo/anti-censorship/pluggable-transports/snowflake/v2/common/event"
 	"gitlab.torproject.org/tpo/anti-censorship/pluggable-transports/snowflake/v2/common/messages"
 	"gitlab.torproject.org/tpo/anti-censorship/pluggable-transports/snowflake/v2/common/namematcher"
@@ -441,7 +442,7 @@ func (sf *SnowflakeProxy) makePeerConnectionFromOffer(
 		})
 
 		dc.OnOpen(func() {
-			log.Printf("Data Channel %s-%d open\n", dc.Label(), dc.ID())
+			log.Printf("Data Channel %s-%d;%s open\n", dc.Label(), dc.ID(), dc.Protocol())
 
 			if sf.OutboundAddress != "" {
 				selectedCandidatePair, err := pc.SCTP().Transport().ICETransport().GetSelectedCandidatePair()
