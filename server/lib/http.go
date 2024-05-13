@@ -244,6 +244,9 @@ func (handler *httpHandler) turboTunnelUDPLikeMode(conn net.Conn, addr net.Addr,
 
 	clientID := turbotunnel.ClientID{}
 	compoments := strings.Split(protocol, " ")
+	if len(compoments) != 2 {
+		return fmt.Errorf("invalid protocol: %s", protocol)
+	}
 	_, err := hex.Decode(clientID[:], []byte(compoments[1]))
 	if err != nil {
 		return fmt.Errorf("reading ClientID: %v", err)
