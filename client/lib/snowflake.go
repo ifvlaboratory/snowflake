@@ -166,7 +166,7 @@ func NewSnowflakeClient(config ClientConfig) (*Transport, error) {
 	eventsLogger := event.NewSnowflakeEventDispatcher()
 	clientID := turbotunnel.NewClientID()
 	transport := &Transport{
-		dialer:          NewWebRTCDialerWithEventsAndProxy(broker, iceServers, max, eventsLogger, config.CommunicationProxy),
+		dialer:          NewWebRTCDialerWithEventsProxyAndClientID(broker, iceServers, max, eventsLogger, config.CommunicationProxy, clientID),
 		eventDispatcher: eventsLogger, clientID: clientID,
 	}
 
