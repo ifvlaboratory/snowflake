@@ -35,6 +35,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -43,6 +44,7 @@ import (
 	"github.com/pion/ice/v2"
 	"github.com/pion/transport/v2/stdnet"
 	"github.com/pion/webrtc/v3"
+
 	"gitlab.torproject.org/tpo/anti-censorship/pluggable-transports/snowflake/v2/common/event"
 	"gitlab.torproject.org/tpo/anti-censorship/pluggable-transports/snowflake/v2/common/messages"
 	"gitlab.torproject.org/tpo/anti-censorship/pluggable-transports/snowflake/v2/common/namematcher"
@@ -349,6 +351,12 @@ func (sf *SnowflakeProxy) datachannelHandler(conn *webRTCConn, remoteAddr net.Ad
 		log.Printf("no remote address given in websocket")
 	}
 
+	if protocol := conn.GetConnectionProtocol(); protocol != "" {
+		q := u.Query()
+		q.Set("protocol", protocol)
+		u.RawQuery = q.Encode()
+	}
+
 	ws, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
 	if err != nil {
 		log.Printf("error dialing relay: %s = %s", u.String(), err)
@@ -422,6 +430,7 @@ func (sf *SnowflakeProxy) makePeerConnectionFromOffer(
 
 		pr, pw := io.Pipe()
 		conn := newWebRTCConn(pc, dc, pr, sf.bytesLogger)
+		conn.SetConnectionProtocol(dc.Protocol())
 
 		dc.SetBufferedAmountLowThreshold(bufferedAmountLowThreshold)
 
@@ -433,7 +442,7 @@ func (sf *SnowflakeProxy) makePeerConnectionFromOffer(
 		})
 
 		dc.OnOpen(func() {
-			log.Printf("Data Channel %s-%d open\n", dc.Label(), dc.ID())
+			log.Printf("Data Channel %s-%d;%s open\n", dc.Label(), dc.ID(), dc.Protocol())
 
 			if sf.OutboundAddress != "" {
 				selectedCandidatePair, err := pc.SCTP().Transport().ICETransport().GetSelectedCandidatePair()
@@ -736,6 +745,11 @@ func (sf *SnowflakeProxy) Stop() {
 // attempting to connect with a known symmetric NAT. If success,
 // it is considered "unrestricted". If timeout it is considered "restricted"
 func (sf *SnowflakeProxy) checkNATType(config webrtc.Configuration, probeURL string) {
+	if os.Getenv("SNOWFLAKE_TEST_ASSUMEUNRESTRICTED") != "" {
+		currentNATType = NATUnrestricted
+		return
+	}
+
 	probe, err := newSignalingServer(probeURL, false)
 	if err != nil {
 		log.Printf("Error parsing url: %s", err.Error())

@@ -41,6 +41,8 @@ type webRTCConn struct {
 	cancelTimeoutLoop context.CancelFunc
 
 	bytesLogger bytesLogger
+
+	protocol string
 }
 
 func newWebRTCConn(pc *webrtc.PeerConnection, dc *webrtc.DataChannel, pr *io.PipeReader, bytesLogger bytesLogger) *webRTCConn {
@@ -135,6 +137,14 @@ func (c *webRTCConn) SetReadDeadline(t time.Time) error {
 func (c *webRTCConn) SetWriteDeadline(t time.Time) error {
 	// nolint: golint
 	return fmt.Errorf("SetWriteDeadline not implemented")
+}
+
+func (c *webRTCConn) SetConnectionProtocol(protocol string) {
+	c.protocol = protocol
+}
+
+func (c *webRTCConn) GetConnectionProtocol() string {
+	return c.protocol
 }
 
 func remoteIPFromSDP(str string) net.IP {

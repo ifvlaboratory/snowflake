@@ -32,6 +32,7 @@ import (
 	"math/rand"
 	"net"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -77,6 +78,8 @@ type Transport struct {
 	// EventDispatcher is the event bus for snowflake events.
 	// When an important event happens, it will be distributed here.
 	eventDispatcher event.SnowflakeEventDispatcher
+
+	clientID turbotunnel.ClientID
 }
 
 // ClientConfig defines how the SnowflakeClient will connect to the broker and Snowflake proxies.
@@ -161,7 +164,11 @@ func NewSnowflakeClient(config ClientConfig) (*Transport, error) {
 		max = config.Max
 	}
 	eventsLogger := event.NewSnowflakeEventDispatcher()
-	transport := &Transport{dialer: NewWebRTCDialerWithEventsAndProxy(broker, iceServers, max, eventsLogger, config.CommunicationProxy), eventDispatcher: eventsLogger}
+	clientID := turbotunnel.NewClientID()
+	transport := &Transport{
+		dialer:          NewWebRTCDialerWithEventsProxyAndClientID(broker, iceServers, max, eventsLogger, config.CommunicationProxy, clientID),
+		eventDispatcher: eventsLogger, clientID: clientID,
+	}
 
 	return transport, nil
 }
@@ -195,7 +202,7 @@ func (t *Transport) Dial() (net.Conn, error) {
 
 	// Create a new smux session
 	log.Printf("---- SnowflakeConn: starting a new session ---")
-	pconn, sess, err := newSession(snowflakes)
+	pconn, sess, err := newSession(snowflakes, t.clientID)
 	if err != nil {
 		return nil, err
 	}
@@ -316,8 +323,11 @@ func parseIceServers(addresses []string) []webrtc.ICEServer {
 // newSession returns a new smux.Session and the net.PacketConn it is running
 // over. The net.PacketConn successively connects through Snowflake proxies
 // pulled from snowflakes.
-func newSession(snowflakes SnowflakeCollector) (net.PacketConn, *smux.Session, error) {
+func newSession(snowflakes SnowflakeCollector, clientIDCandid turbotunnel.ClientID) (net.PacketConn, *smux.Session, error) {
 	clientID := turbotunnel.NewClientID()
+	if clientIDCandid != (turbotunnel.ClientID{}) {
+		clientID = clientIDCandid
+	}
 
 	// We build a persistent KCP session on a sequence of ephemeral WebRTC
 	// connections. This dialContext tells RedialPacketConn how to get a new
@@ -332,6 +342,15 @@ func newSession(snowflakes SnowflakeCollector) (net.PacketConn, *smux.Session, e
 			return nil, errors.New("handler: Received invalid Snowflake")
 		}
 		log.Println("---- Handler: snowflake assigned ----")
+		log.Printf("activeTransportMode = %c \n", conn.activeTransportMode)
+		if conn.activeTransportMode == 'u' {
+			packetConnWrapper := &packetConnWrapper{
+				ReadWriter: conn,
+				remoteAddr: dummyAddr{},
+				localAddr:  dummyAddr{},
+			}
+			return packetConnWrapper, nil
+		}
 		// Send the magic Turbo Tunnel token.
 		_, err := conn.Write(turbotunnel.Token[:])
 		if err != nil {
@@ -356,7 +375,7 @@ func newSession(snowflakes SnowflakeCollector) (net.PacketConn, *smux.Session, e
 		return nil, nil, err
 	}
 	// Permit coalescing the payloads of consecutive sends.
-	conn.SetStreamMode(true)
+	conn.SetStreamMode(false)
 	// Set the maximum send and receive window sizes to a high number
 	// Removes KCP bottlenecks: https://gitlab.torproject.org/tpo/anti-censorship/pluggable-transports/snowflake/-/issues/40026
 	conn.SetWindowSize(WindowSize, WindowSize)
@@ -368,6 +387,14 @@ func newSession(snowflakes SnowflakeCollector) (net.PacketConn, *smux.Session, e
 		0, // default resend
 		1, // nc=1 => congestion window off
 	)
+	if os.Getenv("SNOWFLAKE_TEST_KCP_FAST3MODE") == "1" {
+		conn.SetNoDelay(
+			1,
+			10,
+			2,
+			1,
+		)
+	}
 	// On the KCP connection we overlay an smux session and stream.
 	smuxConfig := smux.DefaultConfig()
 	smuxConfig.Version = 2
