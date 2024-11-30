@@ -1,0 +1,57 @@
+# This workflow will build a golang project
+# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-go
+
+name: Go
+
+on:
+  push:
+    branches: [ "main", "ci_github-build" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+    inputs:
+      gcc_march:
+        description: 'GCC -march option'
+        required: false
+        default: 'skylake-avx512'
+        type: string
+      gcc_mtune:
+        description: 'GCC -mtune option'
+        required: false
+        default: 'skylake-avx512'
+        type: string
+
+jobs:
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: 'stable'
+
+    - name: Setup C and Go build environment variables
+      run: |
+        INPUT_GCC_MARCH=${{ inputs.gcc_march }} INPUT_GCC_MTUNE=${{ inputs.gcc_mtune }}
+        GCC_MARCH=${INPUT_GCC_MARCH:-'skylake-avx512'} GCC_MTUNE=${INPUT_GCC_MTUNE:-'skylake-avx512'}
+
+        export CFLAGS="-Ofast -flto=auto -fno-fat-lto-objects -march=${GCC_MARCH} -mtune=${GCC_MTUNE} -fno-plt -pipe -ffunction-sections -fdata-sections" \
+               CXXFLAGS="-Ofast -flto=auto -fno-fat-lto-objects -march=${GCC_MARCH} -mtune=${GCC_MTUNE} -fno-plt -pipe -ffunction-sections -fdata-sections" \
+               LDFLAGS="${LDFLAGS} -Wl,--gc-sections -fuse-ld=mold" \
+               CGO_CFLAGS=${CFLAGS} CGO_CXXFLAGS=${CXXFLAGS} CGO_LDFLAGS=${LDFLAGS}
+        export GO111MODULE=on GOPROXY='https://proxy.golang.org,direct' GOFLAGS='-ldflags=-w -ldflags=-s -trimpath'
+
+    - name: Build
+      run: |
+        go build -o bin/snowflake-proxy ./proxy
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: snowflake
+        path: 'bin'
+        retention-days: 90
+        compression-level: 9
